@@ -8,9 +8,8 @@ The output is writen to MongoDB
 Instalation:
 1. Install Anaconda and activate your virtual environment.
 2. Install the following python packages using pip. Execute these commands:
-pip install pandas;
-pip install socket;
+pip install pandas
+pip install socket
 3. Start server using one of the following method:
-Execute in your shell: python gps.py
-It can be started as systemd service.
+Execute in your shell: python gps.py .It can be started as systemd service.
 

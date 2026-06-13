@@ -75,3 +75,112 @@ the correct MAC address, `major`, and `minor` values.
 |-------|--------|-------------|
 | `08`  | `decodeC8()` | No (IO elements only) |
 | `8E`  | `decodeC8E()` | Yes (iBeacon, Eddystone) |
+
+---
+
+## Kubernetes / k3s deployment
+
+### Prerequisites
+
+- k3s running (`k3s --version`)
+- `kubectl` configured against the cluster
+- `helm` v3 installed
+
+### 1 — Pull the Helm chart dependencies
+
+```bash
+helm dependency update helm/teltonika
+```
+
+This fetches the Bitnami MongoDB subchart.
+
+### 2 — Install
+
+```bash
+helm install teltonika helm/teltonika \
+  --set mongodb.auth.rootPassword=<root-password> \
+  --set mongodb.auth.password=<app-password> \
+  --set credentials.mysqlUser=<mysql-user> \
+  --set credentials.mysqlPass=<mysql-password>
+```
+
+Both `mongodb.auth.rootPassword` and `mongodb.auth.password` are **required** — the install aborts with a clear error if either is omitted.
+
+`mongodb.auth.password` is the single source of truth for the app's MongoDB credentials; you do **not** need to set `credentials.mongoPass` separately.
+
+### 3 — Verify
+
+```bash
+# All three pods should reach Running status
+kubectl get pods -l app.kubernetes.io/instance=teltonika
+
+# Check the external IP assigned by klipper-lb (k3s built-in)
+kubectl get svc teltonika-server
+```
+
+Expected output:
+
+```
+NAME              TYPE           CLUSTER-IP     EXTERNAL-IP    PORT(S)          AGE
+teltonika-server  LoadBalancer   10.43.x.x      192.168.x.x    9999:xxxxx/TCP   1m
+```
+
+Teltonika devices should point to `EXTERNAL-IP:9999`.
+
+### 4 — Upgrade
+
+After pushing a new image via the GitHub Actions pipeline:
+
+```bash
+helm upgrade teltonika helm/teltonika \
+  --set mongodb.auth.rootPassword=<root-password> \
+  --set mongodb.auth.password=<app-password> \
+  --set credentials.mysqlUser=<mysql-user> \
+  --set credentials.mysqlPass=<mysql-password>
+```
+
+Or pin a specific image tag:
+
+```bash
+helm upgrade teltonika helm/teltonika \
+  ... \
+  --set server.image.tag=sha-abc1234
+```
+
+### 5 — External MongoDB (optional)
+
+To use an existing MongoDB instance instead of the in-cluster one:
+
+```bash
+helm install teltonika helm/teltonika \
+  --set mongodb.enabled=false \
+  --set mongodb.host=<mongo-hostname> \
+  --set credentials.mongoUser=<user> \
+  --set credentials.mongoPass=<password> \
+  --set credentials.mysqlUser=<mysql-user> \
+  --set credentials.mysqlPass=<mysql-password>
+```
+
+### Architecture
+
+```
+Teltonika devices
+      │ TCP :9999
+      ▼
+┌─────────────────┐      ┌──────────┐
+│ teltonika-server│─────▶│ MongoDB  │
+│  (gps.py)       │      │ (Bitnami)│
+└─────────────────┘      └────┬─────┘
+                              │
+┌─────────────────┐           │
+│  sync-worker    │◀──────────┘
+│ (sync_teltonika)│
+└────────┬────────┘
+         │
+         ▼
+      MySQL (external)
+```
+
+- **teltonika-server** — receives Codec 8/8E frames, writes raw documents to MongoDB
+- **MongoDB** — in-cluster StatefulSet (Bitnami chart), data persisted on a `local-path` PV
+- **sync-worker** — reads MongoDB, writes beacon sightings to Django's MySQL database

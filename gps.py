@@ -1,11 +1,13 @@
 import socket
-
 import threading
 import binascii
-import pandas as pd
+import time
+
+import pymysql
 
 from dec import codec8Decoder
 from pymongo import MongoClient, errors
+
 client = MongoClient('localhost',
                     username='sdm',
                     password='k3r34',
@@ -16,7 +18,46 @@ collection = db['data']
 collection.create_index([('timestamp',1),('imei',1)], unique=True, dropDups=1)
 
 port = 9999
-allBeacons = pd.read_csv('beacons.csv',usecols=['mac', 'major', 'minor'])
+
+# ── Beacon lookup: (major, minor) → MAC ──────────────────────────────────────
+# Loaded from the Django MySQL database so any beacon registered via Django
+# admin is picked up automatically (refreshed every BEACON_REFRESH_SECS).
+
+MYSQL_CNF   = '/etc/unitradecluster-my.cnf'
+BEACON_REFRESH_SECS = 300  # refresh from DB every 5 minutes
+
+_beacons = {}          # {(major, minor): mac_str}
+_beacons_loaded_at = 0
+
+
+def _load_beacons():
+    global _beacons, _beacons_loaded_at
+    conn = pymysql.connect(read_default_file=MYSQL_CNF, charset='utf8mb4')
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                'SELECT beaconMac, major, minor '
+                'FROM core_beaconsdb '
+                'WHERE major IS NOT NULL AND minor IS NOT NULL'
+            )
+            _beacons = {(row[1], row[2]): row[0] for row in cur.fetchall()}
+            _beacons_loaded_at = time.time()
+            print(f'[ BEACONS LOADED: {len(_beacons)} entries from MySQL ]')
+    finally:
+        conn.close()
+
+
+def get_beacons():
+    """Return the beacon lookup dict, refreshing from MySQL if stale."""
+    if time.time() - _beacons_loaded_at > BEACON_REFRESH_SECS:
+        try:
+            _load_beacons()
+        except Exception as exc:
+            print(f'[ BEACON RELOAD FAILED: {exc} — using cached data ]')
+    return _beacons
+
+
+_load_beacons()  # initial load at startup
 
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -42,7 +83,7 @@ def decodethis(data, imei):
             speed = int(data[64:68], 16)
             print(f'[ DATA LENGTH {len(data[38:46])}')
             print(f"[ N RECORDS:  {str(record)} ] \n[ TIMESTAMP: {str(timestamp)} ] \n[ LAT,LON: {str(lat)} {str(lon)} ] \n[ ALTITUDE: {str(alt)} ]\n[ SATS:  {str(sats)} ]\n[ SPEED: {str(speed)} ] \n")
-            sux = codec8Decoder(data,'',collection).decodeC8()
+            sux = codec8Decoder(data, get_beacons(), collection).decodeC8()
             imei = imei.strip('\x00').strip('\x0f')
             for x in sux:
                 x['imei'] = imei
@@ -54,7 +95,7 @@ def decodethis(data, imei):
                     pass
 
         elif codec == '8e':
-            sux = codec8Decoder(data,allBeacons,collection).decodeC8E()
+            sux = codec8Decoder(data, get_beacons(), collection).decodeC8E()
             imei = imei.strip('\x00').strip('\x0f')
             for x in sux:
                 x['imei'] = imei

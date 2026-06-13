@@ -1,7 +1,5 @@
 from datetime import datetime, timedelta
 
-import pandas as pd
-
 '''
     Class for decoding Codec 8 messages from Teltonica GPS receiver
     For detailed information please visit: https://wiki.teltonika-gps.com/view/Codec
@@ -393,10 +391,13 @@ class codec8Decoder:
 
                         if all(v is not None for v in [singleBeaconMinor, singleBeaconMajor, singleBeaconRSSI]):
                             print("GOT IT - BEACON FOUND: singleBeaconMinor: ",singleBeaconMinor, "singleBeaconMajor ", singleBeaconMajor, "singleBeaconRSSI", singleBeaconRSSI )
-                            beaconMAC = self.allBeacons.loc[
-                                (self.allBeacons['major'] == int(singleBeaconMajor,16) ) &
-                                (self.allBeacons['minor'] == int(singleBeaconMinor,16) )
-                                ].mac.values[0]
+                            key = (int(singleBeaconMajor, 16), int(singleBeaconMinor, 16))
+                            beaconMAC = self.allBeacons.get(key)
+                            if beaconMAC is None:
+                                print(f'[ BEACON NOT IN DB: major={key[0]} minor={key[1]} — skipping ]')
+                                singleBeaconMinor = singleBeaconMajor = singleBeaconRSSI = None
+                                counterBeacon += 1
+                                continue
                             message[f"beacon_{counterBeacon}_MAC"] = beaconMAC
                             message[f"beacon_{counterBeacon}_RSSI"] = singleBeaconRSSI
                             singleBeaconMinor = singleBeaconMajor = singleBeaconRSSI = None

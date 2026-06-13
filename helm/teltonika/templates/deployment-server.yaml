@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "teltonika.fullname" . }}-server
+  labels:
+    {{- include "teltonika.labels" . | nindent 4 }}
+    {{- include "teltonika.server.selectorLabels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.server.replicas }}
+  selector:
+    matchLabels:
+      {{- include "teltonika.server.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "teltonika.server.selectorLabels" . | nindent 8 }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+      containers:
+        - name: teltonika-server
+          image: "{{ .Values.server.image.repository }}:{{ .Values.server.image.tag }}"
+          imagePullPolicy: {{ .Values.server.image.pullPolicy }}
+          ports:
+            - name: teltonika-tcp
+              containerPort: {{ .Values.server.tcpPort }}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "teltonika.configmapName" . }}
+            - secretRef:
+                name: {{ include "teltonika.secretName" . }}
+          resources:
+            {{- toYaml .Values.server.resources | nindent 12 }}
+          livenessProbe:
+            tcpSocket:
+              port: {{ .Values.server.tcpPort }}
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            failureThreshold: 3

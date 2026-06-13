@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "teltonika.configmapName" . }}
+  labels:
+    {{- include "teltonika.labels" . | nindent 4 }}
+data:
+  # MongoDB
+  MONGO_HOST: {{ include "teltonika.mongoHost" . | quote }}
+  MONGO_PORT: {{ .Values.mongodb.port | toString | quote }}
+  MONGO_DB:   {{ .Values.mongodb.database | quote }}
+  MONGO_COLLECTION: {{ .Values.mongodb.collection | quote }}
+  # MySQL
+  MYSQL_HOST: {{ .Values.mysql.host | quote }}
+  MYSQL_PORT: {{ .Values.mysql.port | toString | quote }}
+  MYSQL_DB:   {{ .Values.mysql.database | quote }}
+  # Server
+  TCP_PORT:            {{ .Values.server.tcpPort | toString | quote }}
+  BEACON_REFRESH_SECS: {{ .Values.server.beaconRefreshSecs | toString | quote }}
+  # Sync worker
+  TELTONIKA_WATERMARK_FILE:      {{ .Values.syncWorker.persistence.mountPath | printf "%s/.teltonika_watermark" | quote }}
+  TELTONIKA_MAX_SITE_DISTANCE_KM: {{ .Values.syncWorker.maxSiteDistanceKm | toString | quote }}

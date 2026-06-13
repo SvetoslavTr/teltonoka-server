@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "teltonika.fullname" . }}-sync
+  labels:
+    {{- include "teltonika.labels" . | nindent 4 }}
+    {{- include "teltonika.sync.selectorLabels" . | nindent 4 }}
+spec:
+  # Must stay at 1 — two pods would race on the watermark file
+  replicas: {{ .Values.syncWorker.replicas }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "teltonika.sync.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "teltonika.sync.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: sync-worker
+          image: "{{ .Values.syncWorker.image.repository }}:{{ .Values.syncWorker.image.tag }}"
+          imagePullPolicy: {{ .Values.syncWorker.image.pullPolicy }}
+          command:
+            - python
+            - manage.py
+            - sync_teltonika
+            - "--poll-interval"
+            - {{ .Values.syncWorker.pollInterval | toString | quote }}
+            - "--batch-size"
+            - {{ .Values.syncWorker.batchSize | toString | quote }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "teltonika.configmapName" . }}
+            - secretRef:
+                name: {{ include "teltonika.secretName" . }}
+          {{- if .Values.syncWorker.persistence.enabled }}
+          volumeMounts:
+            - name: watermark
+              mountPath: {{ .Values.syncWorker.persistence.mountPath }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.syncWorker.resources | nindent 12 }}
+      {{- if .Values.syncWorker.persistence.enabled }}
+      volumes:
+        - name: watermark
+          persistentVolumeClaim:
+            claimName: {{ include "teltonika.sync.pvcName" . }}
+      {{- end }}

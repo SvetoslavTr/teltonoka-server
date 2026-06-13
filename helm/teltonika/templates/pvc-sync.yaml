@@ -1,0 +1,15 @@
+{{- if .Values.syncWorker.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "teltonika.sync.pvcName" . }}
+  labels:
+    {{- include "teltonika.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: {{ .Values.syncWorker.persistence.storageClass | quote }}
+  resources:
+    requests:
+      storage: {{ .Values.syncWorker.persistence.size }}
+{{- end }}

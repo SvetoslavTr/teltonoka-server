@@ -1,0 +1,102 @@
+# ── Teltonika TCP server ──────────────────────────────────────────────────────
+server:
+  image:
+    repository: ghcr.io/svetoslavtr/teltonika-server
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  replicas: 1
+  tcpPort: 9999
+  beaconRefreshSecs: 300
+
+  service:
+    # LoadBalancer works out of the box on k3s via klipper-lb and gives the
+    # pod a stable external IP.  Use NodePort if you manage ingress yourself.
+    type: LoadBalancer
+    port: 9999
+    # loadBalancerIP: ""   # uncomment to pin a specific external IP
+
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "64Mi"
+    limits:
+      cpu: "200m"
+      memory: "128Mi"
+
+# ── Django sync worker ────────────────────────────────────────────────────────
+syncWorker:
+  image:
+    repository: your-registry/unitrade-django     # replace with your Django image
+    tag: "latest"
+    pullPolicy: IfNotPresent
+  # Must be 1 — the watermark file must not be written by two pods concurrently
+  replicas: 1
+  pollInterval: 10      # seconds between MongoDB polls
+  batchSize: 200        # documents per MongoDB query
+  maxSiteDistanceKm: 0.5
+
+  # PVC for the MongoDB high-water mark file
+  # Uses k3s built-in local-path provisioner by default
+  persistence:
+    enabled: true
+    storageClass: "local-path"
+    size: 10Mi
+    mountPath: "/watermark"
+
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "128Mi"
+    limits:
+      cpu: "300m"
+      memory: "256Mi"
+
+# ── MongoDB ───────────────────────────────────────────────────────────────────
+# When enabled: true, a MongoDB pod is deployed via the Bitnami subchart and
+# the host is auto-derived as "<release-name>-mongodb".
+# Set enabled: false and provide host to use an external MongoDB instead.
+mongodb:
+  enabled: true
+  host: ""               # only used when enabled: false
+  port: 27017
+  database: trackersData
+  collection: data
+
+  # Bitnami subchart config (ignored when enabled: false) ─────────────────────
+  # When enabled, these are the SINGLE SOURCE OF TRUTH for the app's MongoDB
+  # credentials too — the app reuses auth.username / auth.password, so there is
+  # nothing to keep in sync in the credentials block below.
+  auth:
+    enabled: true
+    rootPassword: ""     # required: --set mongodb.auth.rootPassword=xxx
+    username: sdm
+    password: ""         # required: --set mongodb.auth.password=xxx
+    database: trackersData
+
+  persistence:
+    enabled: true
+    storageClass: "local-path"   # k3s built-in provisioner
+    size: 2Gi
+
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+# ── MySQL connection ──────────────────────────────────────────────────────────
+mysql:
+  host: mysql            # service name of your MySQL deployment
+  port: 3306
+  database: unitradecluster
+
+# ── Credentials (override with --set or an external secret manager) ──────────
+# mongoUser / mongoPass are ONLY used when mongodb.enabled is false (external
+# MongoDB). When the subchart is enabled they are ignored — mongodb.auth.* wins.
+credentials:
+  mongoUser: sdm
+  mongoPass: ""          # required for external Mongo: --set credentials.mongoPass=xxx
+  mysqlUser: ""          # set at install time: --set credentials.mysqlUser=xxx
+  mysqlPass: ""          # set at install time: --set credentials.mysqlPass=xxx

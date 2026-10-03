@@ -60,58 +60,37 @@ jobs:
           cache-to: type=gha,mode=max
 
   deploy:
-    name: Deploy to k3s
+    name: Deploy to K3s (namespace unitradecluster)
     needs: build-and-push
-    runs-on: ubuntu-latest
+    # Self-hosted runner scale set inside the unitrade K3s cluster (ARC). Its
+    # ServiceAccount may only manage this release's objects in unitradecluster.
+    runs-on: arc-teltonika
     if: github.event_name == 'push'
+    env:
+      # Helm stores release state in ConfigMaps, so the deployer needs no access to Secrets
+      HELM_DRIVER: configmap
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - uses: azure/setup-helm@v5
+        with:
+          version: v4.3.0
+
       - name: Resolve image tag
         id: tag
         run: |
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            # v1.2.3 → 1.2.3  (strips the leading v to match semver tag produced above)
+            # v1.2.3 -> 1.2.3  (matches the semver tag produced above)
             echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
           else
             echo "value=sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Copy Helm chart to server
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: fpvautotuner.com
-          username: svetlio
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          source: "helm/"
-          target: "~/teltonika-deploy"
-          rm: true
-
       - name: Deploy via Helm
-        uses: appleboy/ssh-action@v1
-        env:
-          IMAGE_TAG: ${{ steps.tag.outputs.value }}
-          MONGO_ROOT_PASS: ${{ secrets.MONGO_ROOT_PASSWORD }}
-          MONGO_PASS: ${{ secrets.MONGO_PASSWORD }}
-          MYSQL_USER: ${{ secrets.MYSQL_USER }}
-          MYSQL_PASS: ${{ secrets.MYSQL_PASS }}
-        with:
-          host: fpvautotuner.com
-          username: svetlio
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          envs: IMAGE_TAG,MONGO_ROOT_PASS,MONGO_PASS,MYSQL_USER,MYSQL_PASS
-          script: |
-            set -euo pipefail
-            helm dependency update ~/teltonika-deploy/helm/teltonika
-            helm upgrade --install teltonika ~/teltonika-deploy/helm/teltonika \
-              --namespace teltonika \
-              --create-namespace \
-              --set server.image.tag="$IMAGE_TAG" \
-              --set mongodb.auth.rootPassword="$MONGO_ROOT_PASS" \
-              --set mongodb.auth.password="$MONGO_PASS" \
-              --set credentials.mysqlUser="$MYSQL_USER" \
-              --set credentials.mysqlPass="$MYSQL_PASS" \
-              --wait \
-              --timeout 5m
+        run: |
+          helm upgrade --install teltonika helm/teltonika \
+            --namespace unitradecluster \
+            --set server.image.tag="${{ steps.tag.outputs.value }}" \
+            --rollback-on-failure --wait --timeout 5m

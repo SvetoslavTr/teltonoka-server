@@ -1,0 +1,13 @@
+# Raw TCP from the Traefik entry point to gps.py (devices don't speak HTTP)
+apiVersion: traefik.io/v1alpha1
+kind: IngressRouteTCP
+metadata:
+  name: {{ include "teltonika.fullname" . }}-server
+  labels: {{- include "teltonika.labels" . | nindent 4 }}
+spec:
+  entryPoints: [{{ .Values.traefik.entryPoint }}]
+  routes:
+    - match: HostSNI(`*`)
+      services:
+        - name: {{ include "teltonika.fullname" . }}-server
+          port: {{ .Values.server.tcpPort }}

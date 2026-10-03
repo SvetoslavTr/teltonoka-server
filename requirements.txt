@@ -1,2 +1,4 @@
 pymongo==4.17.0
 pymysql==1.1.1
+# required by PyMySQL for MySQL 8.4 caching_sha2_password over non-TLS connections
+cryptography==50.0.2

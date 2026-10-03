@@ -6,36 +6,45 @@ metadata:
     {{- include "teltonika.labels" . | nindent 4 }}
     {{- include "teltonika.server.selectorLabels" . | nindent 4 }}
 spec:
-  replicas: {{ .Values.server.replicas }}
+  replicas: 1
+  strategy: {type: Recreate}
   selector:
-    matchLabels:
-      {{- include "teltonika.server.selectorLabels" . | nindent 6 }}
+    matchLabels: {{- include "teltonika.server.selectorLabels" . | nindent 6 }}
   template:
     metadata:
-      labels:
-        {{- include "teltonika.server.selectorLabels" . | nindent 8 }}
+      labels: {{- include "teltonika.server.selectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
     spec:
+      {{- with .Values.server.imagePullSecrets }}
+      imagePullSecrets:
+        {{- range . }}
+        - name: {{ . }}
+        {{- end }}
+      {{- end }}
       securityContext:
         runAsNonRoot: true
-        runAsUser: 1000
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile: {type: RuntimeDefault}
       containers:
-        - name: teltonika-server
-          image: "{{ .Values.server.image.repository }}:{{ .Values.server.image.tag }}"
+        - name: server
+          image: "{{ .Values.server.image.repository }}:{{ required "server.image.tag is required" .Values.server.image.tag }}"
           imagePullPolicy: {{ .Values.server.image.pullPolicy }}
           ports:
-            - name: teltonika-tcp
-              containerPort: {{ .Values.server.tcpPort }}
-              protocol: TCP
+            - {name: teltonika, containerPort: {{ .Values.server.tcpPort }}, protocol: TCP}
           envFrom:
-            - configMapRef:
-                name: {{ include "teltonika.configmapName" . }}
-            - secretRef:
-                name: {{ include "teltonika.secretName" . }}
-          resources:
-            {{- toYaml .Values.server.resources | nindent 12 }}
+            - configMapRef: {name: {{ include "teltonika.fullname" . }}-config}
+            - secretRef: {name: {{ required "existingSecret is required" .Values.existingSecret }}}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: [ALL]}
+          resources: {{- toYaml .Values.server.resources | nindent 12 }}
+          readinessProbe:
+            tcpSocket: {port: teltonika}
+            periodSeconds: 10
           livenessProbe:
-            tcpSocket:
-              port: {{ .Values.server.tcpPort }}
+            tcpSocket: {port: teltonika}
             initialDelaySeconds: 10
             periodSeconds: 30
             failureThreshold: 3

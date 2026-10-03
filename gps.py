@@ -134,7 +134,9 @@ def decodethis(data, imei):
                     # print('Sorry, refusing to insert. This is fuckin\' Duplicate entry')
                     pass
 
-    return b"000000"+data[18:20]
+    # ACK = number of accepted records as a 4-byte big-endian integer (Teltonika
+    # protocol). data is hex text, so data[18:20] is the 1-byte record count.
+    return binascii.unhexlify(b"000000"+data[18:20])
 
 def handle_client(conn, addr):
     print(f"[ NEW CONNECTION:  {addr} connected. ]")
@@ -203,7 +205,7 @@ def start():
         conn, addr = s.accept()
         thread = threading.Thread(target=handle_client, args=(conn, addr))
         thread.start()
-        print(f"[ ACTIVE CONNECTIONS: {threading.activeCount() - 1} ]")
+        print(f"[ ACTIVE CONNECTIONS: {threading.active_count() - 1} ]")
 print(f'[ SERVER STARTING  ... ]')
 try:
     start()
